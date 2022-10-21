@@ -75,3 +75,225 @@ cnt_sch = cls_cnt(labels, "schooner")
 cnt_mtb, cnt_arp, cnt_sch
 max_number = max(cnt_mtb, cnt_arp, cnt_sch)
 
+
+## Scaling the images
+def make_scale(img):
+    # scale range
+    scale_val = random.uniform(0.8, 1.2)
+    imgScaled = cv2.resize(img.copy(), 
+                           None, 
+                           fx=scale_val, 
+                           fy=scale_val)
+    
+    return imgScaled
+def mk_rt(img):
+    (h, w) = img.shape[:2]
+    
+    rotate_val = random.uniform(-5, 5)
+    
+    center = (w / 2, h / 2)  
+    
+    M = cv2.getRotationMatrix2D(center, 
+                                rotate_val, 
+                                scale=1)
+    
+    imgRotated = cv2.warpAffine(img.copy(), 
+                                M, 
+                                (w, h))
+    return imgRotated
+## Image Augmentation
+def aug(cnt, max_number, class_name):
+    
+    while cnt < max_number:
+        
+        for img in data:
+            
+            if cnt < max_number:
+                aug_img = img.copy()
+                aug_img = make_scale(aug_img)
+                
+                cv2.imwrite("aug_img.jpg", aug_img)
+                
+                aug_img = load_img("aug_img.jpg", target_size=(224, 224))
+                aug_img = img_to_array(aug_img)
+                
+                os.remove("aug_img.jpg")
+                
+                data.append(aug_img)
+                labels.append(class_name)
+                imagePaths.append(img_add)
+                
+                cnt = cls_cnt(labels, class_name)
+            else:
+                break
+
+            if cnt < max_number:
+                aug_img = img.copy()
+                aug_img = mk_rt(aug_img)
+                
+                cv2.imwrite("aug_img.jpg", aug_img)
+                
+                aug_img = load_img("aug_img.jpg", target_size=(224, 224))
+                aug_img = img_to_array(aug_img)
+                
+                os.remove("aug_img.jpg")
+                
+                data.append(aug_img)
+                labels.append(class_name)
+                imagePaths.append(img_add)
+                
+                cnt = cls_cnt(labels, class_name)
+            else:
+                break
+aug(cnt_mtb, max_number, "Motorbikes")
+aug(cnt_sch, max_number, "schooner")
+cnt_mtb = cls_cnt(labels, "Motorbikes")
+cnt_arp = cls_cnt(labels, "airplanes")
+cnt_sch = cls_cnt(labels, "schooner")
+
+cnt_mtb, cnt_arp, cnt_sch
+## Data Normalization
+data = np.array(data, dtype="float32") / 255.0
+
+labels = np.array(labels)
+imagePaths = np.array(imagePaths)
+lb = LabelBinarizer()
+labels = lb.fit_transform(labels)
+if len(lb.classes_) == 2:
+    print("two classes")
+    labels = to_categorical(labels)
+## Train test split
+split = train_test_split(data,
+                         labels,
+                         imagePaths,
+                         test_size=0.05,
+                         random_state=42)
+## Initializing the neural network
+(tr_img, tst_img) = split[:2]
+(tr_lb, tst_lb) = split[2:4]
+(tr_pth, tst_pth) = split[4:]
+f = open("testing_multiclass.txt", "w")
+f.write("\n".join(tst_pth))
+f.close()
+vgg = VGG16(weights="imagenet",
+            include_top=False,
+            input_tensor=Input(shape=(224, 224, 3)))
+vgg.trainable = False
+
+flatten = vgg.output
+flatten = Flatten()(flatten)
+smhead = Dense(512, activation="relu")(flatten)
+smhead = Dropout(0.5)(smhead)
+smhead = Dense(512, activation="relu")(smhead)
+smhead = Dropout(0.5)(smhead)
+
+smhead = Dense(len(lb.classes_), 
+                    activation="softmax", 
+                    name="class_label")(smhead)
+model = Model(
+    inputs=vgg.input,
+    outputs=(smhead))
+INIT_LR = 1e-4
+NUM_EPOCHS = 2
+BATCH_SIZE = 32
+losses = {
+    "class_label": "categorical_crossentropy",
+}
+trainTargets = {
+    "class_label": tr_lb,
+}
+testTargets = {
+    "class_label": tst_lb,
+}
+model_path = "model.h5"
+
+model_checkpoint_callback = ModelCheckpoint(
+    filepath=model_path,
+    monitor='val_accuracy',
+    mode='max',
+    save_best_only=True)
+opt = Adam(INIT_LR)
+
+model.compile(loss=losses, 
+              optimizer=opt, 
+              metrics=["accuracy"])
+
+print(model.summary())
+H = model.fit(
+    tr_img, trainTargets,
+    validation_data=(tst_img, testTargets),
+    batch_size=BATCH_SIZE,
+    epochs=NUM_EPOCHS,
+    callbacks=[model_checkpoint_callback],
+    verbose=1)
+## Label binarizer
+f = open("lb.pickle", "wb")
+f.write(pickle.dumps(lb))
+f.close()
+## Loss vs Val Loss graph
+lossNames = ["loss"]
+
+N = np.arange(0, NUM_EPOCHS)
+plt.style.use("ggplot")
+plt.figure(figsize=(17, 10))
+
+
+plt.title("Loss & Val Loss")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.bar(N, H.history["loss"], label="loss")
+plt.bar(N, H.history["val_loss"], label="val_loss")
+plt.legend()
+
+plt.show()
+## Accuracy vs Val Accuracy graph
+plt.style.use("ggplot")
+plt.figure(figsize=(17, 10))
+
+plt.bar(N, H.history["accuracy"], label="acc")
+plt.bar(N, H.history["val_accuracy"], label="val_acc")
+
+plt.title("Accuracy & Val Accuracy")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
+plt.legend()
+## Testing the model
+path = "testing_multiclass.txt"
+filenames = open(path).read().strip().split("\n")
+imagePaths = []
+
+for f in filenames:
+    imagePaths.append(f)
+model = load_model("./model.h5")
+
+lb = pickle.loads(open("./lb.pickle", "rb").read())
+
+## Image prediction
+cntr = 0
+
+for imagePath in imagePaths:
+
+    image = load_img(imagePath, target_size=(224, 224))
+    image = img_to_array(image) / 255.0
+    image = np.expand_dims(image, axis=0)
+
+    (labelPreds) = model.predict(image)
+
+    i = np.argmax(labelPreds, axis=1)
+    label = lb.classes_[i][0]
+
+    image = cv2.imread(imagePath)
+    image = imutils.resize(image, width=600)
+    (h, w) = image.shape[:2]
+
+
+
+    print("class label = ", label)
+    imgplot = plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype('uint8'))
+    plt.show()
+    
+    cntr += 1
+    
+    if (cntr > 10):
+        break
+ply.bar()
