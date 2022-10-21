@@ -1,0 +1,77 @@
+# Importing the neccesary libraries
+import imutils
+import os
+import cv2
+import datetime
+import numpy as np
+import random
+
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.models import load_model
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.utils import to_categorical
+from  tensorflow.keras.callbacks import ModelCheckpoint
+
+from sklearn.preprocessing import LabelBinarizer
+
+import pickle
+## Declaring the variables
+data = []
+labels = []
+imagePaths = []
+## Importing the images
+images_path = '/kaggle/input/caltech101-airplanes-motorbikes-schooners/caltech101_classification'
+classes = ["Motorbikes", "airplanes", "schooner"]
+
+def cls_cnt(labels, class_name):
+    cnt = 0
+    for l in labels:
+        if l == class_name:
+            cnt += 1
+    return cnt
+for cl in classes:
+    images_list = [] 
+    
+    path_new = images_path + "/" + cl + "/"
+    print(path_new)
+    
+    for image in os.listdir(path_new): 
+
+        if (image.endswith(".jpg")):
+            images_list.append(image)
+    
+    images_list = sorted(images_list)  
+        
+    for img in images_list:
+        label = cl
+        
+        img_add = os.path.sep.join([images_path, cl, img])
+        image = cv2.imread(img_add)
+        (h, w) = image.shape[:2]
+        
+        image = load_img(img_add, target_size=(224, 224))
+        image = img_to_array(image)
+        
+        data.append(image)
+        labels.append(label)
+        imagePaths.append(img_add)
+imgplot = plt.imshow(image.astype('uint8'))
+plt.show()
+## Calculating the images in each class
+cnt_mtb = cls_cnt(labels, "Motorbikes")
+cnt_arp = cls_cnt(labels, "airplanes")
+cnt_sch = cls_cnt(labels, "schooner")
+
+cnt_mtb, cnt_arp, cnt_sch
+max_number = max(cnt_mtb, cnt_arp, cnt_sch)
+
